@@ -2,10 +2,10 @@
 
 usage() {
 	cat << EOF
-Usage: gumboot-install [INSTALL DIRECTORY]
-Install a copy of Gumboot to a directory.
-If a block device is given, gumboot-install will try to resolve a mountpoint.
-A clone of 'grub-install', and a part of the 'gumboot-utils' suite.
+Usage: npll-install [INSTALL DIRECTORY]
+Install a copy of NPLL to a directory.
+If a block device is given, npll-install will try to resolve a mountpoint.
+A clone of 'grub-install', and a part of the 'npll-utils' suite.
 
   -h, --help      print this message and exit
   -v              enable verbose mode
@@ -16,9 +16,9 @@ EOF
 	exit 0
 }
 
-export progname="gumboot-install"
+export progname="npll-install"
 
-. /usr/lib/gumboot/util.sh
+. /usr/lib/npll/util.sh
 
 # handle args
 while getopts ":Vvh" opt; do
@@ -54,11 +54,10 @@ if [ "$1" = "-v" ]; then
 fi
 
 
-mkdir -p "$dir/gumboot"
 mkdir -p "$dir/bootmii"
-paths="usr/lib/gumboot/gumboot.elf:$dir/gumboot/gumboot.elf
-usr/lib/gumboot/gui.elf:$dir/bootmii/gui.elf
-usr/lib/gumboot/armboot.bin:$dir/bootmii/armboot.bin"
+paths="usr/lib/npll/npll_virtvma_physlma_physentry.elf:$dir/npll.elf
+usr/lib/npll/ceil1ng_cat.elf:$dir/bootmii/gui.elf
+usr/lib/npll/armboot.bin:$dir/bootmii/armboot.bin"
 
 for pathGroup in $paths; do
 	src="$(echo "$pathGroup" | cut -d ':' -f1)"
@@ -73,4 +72,4 @@ for pathGroup in $paths; do
 	fi
 done
 
-log "Successfully installed Gumboot to $dir"
+log "Successfully installed NPLL to $dir"

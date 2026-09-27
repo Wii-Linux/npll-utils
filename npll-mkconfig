@@ -1,9 +1,9 @@
 #!/bin/sh
 usage() {
 	cat << EOF
-Usage: gumboot-mkconfig [OPTIONS]
-Generate a Gumboot config file.
-A clone of 'grub-mkconfig', and a part of the 'gumboot-utils' suite.
+Usage: npll-mkconfig [OPTIONS]
+Generate a NPLL config file.
+A clone of 'grub-mkconfig', and a part of the 'npll-utils' suite.
 
   -o FILE         output generated config to FILE [default=stdout]
   -h, --help      print this message and exit
@@ -15,9 +15,9 @@ EOF
 	exit 0
 }
 
-export progname="gumboot-mkconfig"
+export progname="npll-mkconfig"
 
-. /usr/lib/gumboot/util.sh
+. /usr/lib/npll/util.sh
 
 # handle args
 while getopts ":o:Vvh" opt; do
@@ -51,10 +51,10 @@ done
 starting
 
 log "reading config"
-. etc/default/gumboot
+. etc/default/npll
 
-log "reading each gumboot.d entry"
-for f in $(echo etc/gumboot.d/* | sort); do
+log "reading each npll.d entry"
+for f in $(echo etc/npll.d/* | sort); do
 	if [ "$v" = "1" ]; then
 		log "starting $f"
 	fi
