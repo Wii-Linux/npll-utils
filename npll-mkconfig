@@ -1,4 +1,11 @@
 #!/bin/sh
+# NPLL Utilities - npll-mkconfig: generate a distro-use NPLL config
+#
+# Copyright (C) 2026 Techflash
+#
+# Based on gumboot-utils:
+# Copyright (C) 2024 Techflash
+
 usage() {
 	cat << EOF
 Usage: npll-mkconfig [OPTIONS]

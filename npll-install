@@ -1,4 +1,10 @@
 #!/bin/sh
+# NPLL Utilities - npll-install: install NPLL to a directory
+#
+# Copyright (C) 2026 Techflash
+#
+# Based on gumboot-utils:
+# Copyright (C) 2024 Techflash
 
 usage() {
 	cat << EOF
