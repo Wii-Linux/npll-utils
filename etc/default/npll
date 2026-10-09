@@ -1,63 +1,18 @@
 #!/bin/sh
 # This is the config file that specifies several settings that the
-# scripts in `/etc/gumboot.d` will embed into the final config file.
+# scripts in `/etc/npll.d` will embed into the final config file.
 
 
-# This gets sourced by gumboot-mkconfig, so there's no need to export
+# This gets sourced by npll-mkconfig, so there's no need to export
 # shellcheck disable=2034
-
-
-
-# Video mode to be used by gumboot.  Also impacts Linux on some consoles.
-# Auto detection is not implemented (yet), so you do need to get this right.
-# Valid options: "NTSC", "PAL50", "PAL60", "PROGRESSIVE"
-VIDEO_MODE="NTSC"
-
-# Colors to be used by gumboot.  These use the same format as GRUB Legacy:
-# http://www.gnu.org/software/grub/manual/legacy/grub.html#color
-# The order is: NORMAL HIGHLIGHT HELPTEXT HEADING
-# Gumboot's official default colors are:
-# "light-blue/white white/blue white/light-blue green/white"
-COLORS="light-blue/white white/blue white/light-blue green/white"
-
-# How long in seconds to wait for input before auto-booting the first option
-MENU_TIMEOUT=5
-
-# Root device, for entries that require it.
-# Currently only SD is supported, but you may specify any partition from it.
-# The root device must contain a FAT32 filesystem, and the directory
-# specified must be less than 8 characters long, to remain within the limits
-# of the FAT32 "8.3" naming format.
-#
-# Format: "(device,partNum)/directory"
-# Example: "(sd0,0)" means "first partition on the SD Card"
-ROOTDEV="(sd0,0)"
-
-# Directory within the rootdev where kernels are stored.
-# Default is "wiilinux", and is where all official kernels install to.
-# Only change this is if you really have a good reason to.
-KERNEL_DIR="wiilinux"
-
-
-# Enable or disable different entries in the footer.
-# These are pretty self-explanatory
-FOOTER_BROWSE_SD=true
-FOOTER_BOOTMII=true
-FOOTER_POWER=true
-
 
 # Function to format a generic boot entry
 # Looking to change the names of entries?  Don't modify this!
 # You're probably looking for either the names of kernel entries,
 # in which case, look at `write_kentry` below, or you're looking for
-# the names of the auxilary entries, in `/etc/gumboot.d/99_footer`.
+# the names of the auxilary entries, in `/etc/npll.d/99_footer`.
 write_entry() {
-	echo "title $1"
-	echo "$2" | while read line; do
-		printf "\t%s\n" "$line"
-	done
-
-	echo ""
+	printf "\n[%s]\n%s\n" "$1" "$2"
 }
 
 # Function to format specifically a kernel entry
@@ -66,14 +21,26 @@ write_entry() {
 # - $1: "Short" kernel name, this is the file name, except for the extension,
 #   of every file related to this kernel.
 #   
-# - $2: "Full" kernel name, probably pulled from `/boot/gumboot/$1.txt
-#   For example: "4.5.0", or "4.4.302-cip80"
+# - $2: "Full" kernel name, probably pulled from `/boot/$1.txt
+#   For example: "7.2.3"
+#
+# TODO: generate config with other platform keys (GameCube, Wii U)
+# TODO: generate config with initrd keys
+# TODO: stop hardcoding ArchPOWER
 write_kentry() {
-	title="$(printf "Start Wii Linux (Kernel %s)" "$2")"
-	cmds="$(cat << EOF
-root $ROOTDEV/$KERNEL_DIR
-kernel /$1.krn
+	entryID="archpower_$1"
+	title="$(printf "ArchPOWER Wii-Linux (Kernel %s)" "$2")"
+	content="$(cat << EOF
+	name=$title
+	platforms=wii
+	type_wii=linux
+	exec_wii=self:boot/$1.krn
 EOF
 )"
-	write_entry "$title" "$cmds"
+	if [ -f "/boot/$1.dtb" ]; then
+		content="$content
+	dtb_wii=self:boot/$1.dtb"
+	fi
+
+	write_entry "$entryID" "$content"
 }

@@ -50,11 +50,16 @@ done
 
 starting
 
+if [ "$(wii-boot-layout)" = "legacy" ]; then
+	error "npll-mkconfig cannot be ran on a legacy system, try \`npll-migrate'"
+	exit 1
+fi
+
 log "reading config"
-. etc/default/npll
+. /etc/default/npll
 
 log "reading each npll.d entry"
-for f in $(echo etc/npll.d/* | sort); do
+for f in $(echo /etc/npll.d/* | sort); do
 	if [ "$v" = "1" ]; then
 		log "starting $f"
 	fi

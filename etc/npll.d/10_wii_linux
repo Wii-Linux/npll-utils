@@ -4,8 +4,8 @@
 #	error "/boot isn't a mountpoint, which is not normal.  Run \"wii-linux-support\"!"
 #	exit 1
 #fi
-if ! [ -d "boot/$KERNEL_DIR" ]; then
-	error "/boot/$KERNEL_DIR doesn't exist!"
+if ! [ -d "/boot" ]; then
+	error "/boot doesn't exist!"
 	exit 1
 fi
 
@@ -13,7 +13,7 @@ fi
 # since shellcheck is simply wrong, disable it's warning here
 
 # shellcheck disable=SC2164
-cd "boot/$KERNEL_DIR"
+cd "/boot"
 wrote_kentry=false
 for krn in *.krn; do
 	# handle there being no matches

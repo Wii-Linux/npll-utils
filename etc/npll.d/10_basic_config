@@ -1,7 +1,0 @@
-# If you're looking to modify these settings, this is not the file you need.
-# Go check out `/etc/default/gumboot`
-
-echo "video ${VIDEO_MODE}"
-echo "color ${COLORS}"
-echo "timeout ${MENU_TIMEOUT}"
-echo ""

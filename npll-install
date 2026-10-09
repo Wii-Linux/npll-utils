@@ -48,6 +48,11 @@ fi
 
 starting
 
+if [ "$(wii-boot-layout)" = "legacy" ]; then
+	error "npll-install cannot be ran on a legacy system, try \`npll-migrate'"
+	exit 1
+fi
+
 dir="$1"
 if [ "$1" = "-v" ]; then
 	dir="$2"
@@ -55,9 +60,9 @@ fi
 
 
 mkdir -p "$dir/bootmii"
-paths="usr/lib/npll/npll_virtvma_physlma_physentry.elf:$dir/npll.elf
-usr/lib/npll/ceil1ng_cat.elf:$dir/bootmii/gui.elf
-usr/lib/npll/armboot.bin:$dir/bootmii/armboot.bin"
+paths="/usr/lib/npll/npll_virtvma_physlma_physentry.elf:$dir/npll.elf
+/usr/lib/npll/ceil1ng_cat.elf:$dir/bootmii/gui.elf
+/usr/lib/npll/armboot.bin:$dir/bootmii/armboot.bin"
 
 for pathGroup in $paths; do
 	src="$(echo "$pathGroup" | cut -d ':' -f1)"

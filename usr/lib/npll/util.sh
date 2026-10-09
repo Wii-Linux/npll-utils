@@ -34,7 +34,5 @@ if [ "$1" = "--help" ]; then usage; fi
 
 
 starting() {
-	log "$progname, part of gumboot-utils $ver, starting up..."
+	log "$progname, part of npll-utils $ver, starting up..."
 }
-
-cd /
