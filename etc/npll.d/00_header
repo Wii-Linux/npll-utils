@@ -8,4 +8,5 @@ cat << EOF
 # in your FAT partition.  That file (unlike this one) was either created once,
 # by \`npll-migrate' (if you had a previous Gumboot install), or doesn't exist
 # yet (if this is a new install that never had Gumboot).
+cfg_version=1
 EOF

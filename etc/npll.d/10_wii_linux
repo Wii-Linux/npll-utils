@@ -1,9 +1,5 @@
 #!/bin/sh
 
-#if ! mountpoint boot; then
-#	error "/boot isn't a mountpoint, which is not normal.  Run \"wii-linux-support\"!"
-#	exit 1
-#fi
 if ! [ -d "/boot" ]; then
 	error "/boot doesn't exist!"
 	exit 1
@@ -19,14 +15,24 @@ for krn in *.krn; do
 	# handle there being no matches
 	[ -e "$krn" ] || continue
 
-	short="$(printf "%s" "$krn" | head -c -4)"
-	long="$(cat "$short.txt" 2>/dev/null)"
-	if [ "$long" = "" ]; then
-		warn "$short.txt doesn't exist or is empty!  Falling back to file name."
-		long="$short"
+	fname="$(printf "%s" "$krn" | head -c -4)"
+	title="$(cat "$fname.txt" 2>/dev/null)"
+	if [ "$title" = "" ]; then
+		warn "$fname.txt doesn't exist or is empty!  Falling back to file name."
+		title="$fname"
+	fi
+	if [ -f "/usr/lib/wii-linux/kernel/$fname.krn" ]; then
+		owner="$(pacman -Qqo "/usr/lib/wii-linux/kernel/$fname.krn" 2>/dev/null | sed 's/wii-linux-kernel-//')"
+		if [ "$owner" = "" ]; then
+			entryID="archpower_$fname"
+		else
+			entryID="archpower_$owner"
+		fi
+	else
+		entryID="archpower_$fname"
 	fi
 
-	write_kentry "$short" "$long"
+	write_kentry "$fname" "$title" "$entryID"
 	wrote_kentry=true
 done
 

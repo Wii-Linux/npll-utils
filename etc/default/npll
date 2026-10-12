@@ -24,11 +24,12 @@ write_entry() {
 # - $2: "Full" kernel name, probably pulled from `/boot/$1.txt
 #   For example: "7.2.3"
 #
+# - $3: Entry ID
+#
 # TODO: generate config with other platform keys (GameCube, Wii U)
 # TODO: generate config with initrd keys
 # TODO: stop hardcoding ArchPOWER
 write_kentry() {
-	entryID="archpower_$1"
 	title="$(printf "ArchPOWER Wii-Linux (Kernel %s)" "$2")"
 	content="$(cat << EOF
 	name=$title
@@ -42,5 +43,5 @@ EOF
 	dtb_wii=self:boot/$1.dtb"
 	fi
 
-	write_entry "$entryID" "$content"
+	write_entry "$3" "$content"
 }

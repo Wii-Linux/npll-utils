@@ -67,7 +67,6 @@ fi
 
 mkdir -p "$dir/bootmii"
 paths="/usr/lib/npll/npll_virtvma_physlma_physentry.elf:$dir/npll.elf
-/usr/lib/npll/ceil1ng_cat.elf:$dir/bootmii/gui.elf
 /usr/lib/npll/armboot.bin:$dir/bootmii/armboot.bin"
 
 for pathGroup in $paths; do

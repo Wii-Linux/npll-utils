@@ -1,0 +1,350 @@
+#!/bin/bash
+# NPLL Utilities - npll-migrate: migrate a Gumboot system to an NPLL one
+#
+# Copyright (C) 2026 Techflash
+
+
+#
+# Helpers
+#
+problems_fatal=()
+problems_warn=()
+
+any_warn() {
+	[ ${#problems_warn[@]} = 0 ] || return 0
+	return 1
+}
+any_fatal() {
+	[ ${#problems_fatal[@]} = 0 ] || return 0
+	return 1
+}
+print_problems() {
+	for w in "${problems_warn[@]}"; do
+		echo -e "\x1b[1;33mWARNING:\x1b[0m $w"
+	done
+
+	for f in "${problems_fatal[@]}"; do
+		echo -e "\x1b[1;31mFATAL:\x1b[0m $f"
+	done
+	unset w f
+}
+
+# $1 = prompt
+# $2 = default
+confirm() {
+	while true; do
+		echo -ne "$1  "
+		case "$2" in
+			y)
+				echo -n "[Y/n] "
+				read -r conf
+				case "$conf" in
+					y|Y|yes|Yes|YES|"")
+						return 0
+						;;
+					n|N|no|No|NO)
+						return 1
+						;;
+					*)
+						echo "Invalid confirmation"
+						continue
+						;;
+				esac
+				;;
+			n)
+				echo -n "[y/N] "
+				case "$conf" in
+					y|Y|yes|Yes|YES)
+						return 0
+						;;
+					n|N|no|No|NO|"")
+						return 1
+						;;
+					*)
+						echo "Invalid confirmation"
+						continue
+						;;
+				esac
+				;;
+			*)
+				echo
+				echo -e "\x1b[1;31mInternal error: invalid default confirmation"
+				exit 1
+				;;
+		esac
+	done
+}
+
+# $1 = name
+# $2 = required ver
+require_ver() {
+	pkg_ver="$(pacman -Q "$1" | awk '{print $2}')"
+	ver_cmp=$(vercmp "$pkg_ver" "$2")
+	if [ "$ver_cmp" = "-1" ]; then
+		problems_fatal+=("Installed \`$1' package version is too old ($pkg_ver), $2 or newer is required")
+	fi
+
+	unset pkg_ver ver_cmp
+}
+
+# $1 = path
+# $2 = required size
+require_fs_free_mb() {
+	free="$(df -m "$1" | tail -n1 | awk '{print $4}')"
+	if [ "$free" -lt "$2" ]; then
+		problems_fatal+=("Filesystem \`$1' has only ${free}MB free, needs ${2}MB")
+	fi
+
+	unset free
+}
+
+config_hashes=(
+	"00_header:0169209f0ea576fbe188adc30e0f85b0be9230c3da89d21f6b3c94e85c9e90af"
+	"10_basic_config:78015dca7089ee2c269219513443c9759b5b715a9ec5fa5850491f80319193fc"
+	"20_wii_linux:0a4d76420742206ad237ab44ef9d8365764f3b65fc10e53d317560b735f57426"
+	"99_footer:524cd05eedec8fd47c5b380041c64c7ec513c2bed16c288916c11900fb5313e7"
+)
+
+# $1 = file name
+get_cfg_hash() {
+	for combined in "${config_hashes[@]}"; do
+		name="$(echo "$combined" | cut -d ':' -f1)"
+		hash="$(echo "$combined" | cut -d ':' -f2)"
+
+		if [ "$name" = "$1" ]; then
+			echo "$hash"
+			break
+		fi
+	done
+	unset name hash combined
+}
+
+#
+# Compatibility check
+#
+echo "Please wait while we check the compatibility of your installation..."
+layout="$(wii-boot-layout)"
+
+if [ "$layout" != "legacy" ]; then
+	problems_fatal+=("Current boot layout is \"$layout\", only \"legacy\" layouts can migrated")
+fi
+
+if ! mountpoint -q /boot; then
+	problems_fatal+=("/boot is not mounted")
+fi
+
+require_ver npll 0.6-1
+require_ver npll-mini 0.6-1
+require_ver wii-linux-kernel-stable 7.2.3-2
+
+# TODO: get real required sizes
+require_fs_free_mb / 64
+require_fs_free_mb /boot 64
+
+for config in /etc/gumboot.d/*; do
+	fname="$(basename "$config")"
+	expected_hash="$(get_cfg_hash "$fname")"
+	if [ "$expected_hash" = "" ]; then
+		problems_warn+=("Gumboot config \`$fname' is unknown, and will not be migrated")
+		continue
+	fi
+
+	calc_hash="$(sha256sum "$config" | awk '{print $1}')"
+
+	if [ "$calc_hash" != "$expected_hash" ]; then
+		problems_warn+=("Gumboot config \`$fname' has been modified, and will not be migrated")
+	fi
+done
+unset layout fname expected_hash calc_hash
+
+if any_warn && ! any_fatal; then
+	echo -e "\x1b[1;33mNon-fatal problems were detected that may impedede migration\x1b[0m"
+	print_problems
+	if ! confirm "Do you want to continue anyways?" n; then
+		exit 0
+	fi
+elif any_fatal; then
+	echo -e "\x1b[1;31mFatal problems were found, migration is not possible until they are resolved\x1b[0m"
+	print_problems
+	exit 1
+else
+	echo -e "\x1b[32mNo problems detected\x1b[0m"
+fi
+
+#
+# Migration
+#
+
+echo -e "\x1b[1mINFO:\x1b[0m Some Gumboot settings will not be migrated automatically:"
+cat << EOF
+  - Video mode: NPLL features video mode autodetection, similar to how
+    homebrew and official software handle it.  You can override this
+    behavior with a preferred mode in your NPLL user config.
+
+  - Custom entries: NPLL defines boot entries in an entirely different way
+    from Gumboot, which means that custom boot entries cannot be
+    automatically transferred.  Any custom entries detected were reported
+    above.  The default BootMii GUI entry will be migrated automatically
+    and does not count as a custom entry.
+
+  - Default boot selection: If you defined a custom default boot selection,
+    it will not be migrated.  The ArchPOWER Wii-Linux stable kernel will be
+    set as your default boot selection (which was the default behavior of
+    existing Gumboot installs with the standard Wii-Linux config).
+
+EOF
+
+echo -ne "\x1b[1m[Press Return to see more...]\x1b[0m "
+read -r dummy
+unset dummy
+clear
+
+echo -e "\x1b[1mINFO:\x1b[0m NPLL uses a different configuration than Gumboot:"
+cat << EOF
+NPLL features a split configuration model; offering a user config and a
+distro config.
+  - /boot/wii/npll.cfg: User configuration
+    The user config will be generated once for you, and is afterwards yours
+    to place your own settings and custom boot entries in; future updates
+    will not modify it.
+
+  - /boot/npll.cfg: Distro configuration
+    The distro config is overwritten during updates and contains
+    distro-managed autogenerated boot entries.  When generated, it contains
+    no configuration settings.  Attempting to place settings or custom
+    boot entries here will result in them being overwritten; use your user
+    configuration instead.
+
+EOF
+
+if ! confirm "This migration will make \x1b[1;33mPERMANENT\x1b[0m changes to your Wii-Linux install.\nAre you sure you want to continue?" y; then
+	exit 0
+fi
+
+umount /boot && mkdir -p /boot/wii && mount -t vfat /dev/mmcblk0p1 /boot/wii || {
+	echo -e "\x1b[1;31mFailed to set up mounts\x1b[0m"
+	if [ -d /boot/wii ]; then
+		rmdir /boot/wii
+	fi
+	if ! mountpoint -q /boot; then
+		mount -t vfat /dev/mmcblk0p1 /boot
+	fi
+	exit 1
+}
+
+FAT=/boot/wii
+ROOT_BOOT=/boot
+
+echo "Making backups..."
+mkdir -p $FAT/gumboot.bak
+mv $FAT/gumboot $FAT/gumboot.bak/boot_gumboot
+mv $FAT/bootmii/armboot.bin $FAT/gumboot.bak/boot_bootmii_armboot.bin
+mv $FAT/wiilinux $FAT/gumboot.bak/boot_wiilinux
+mv /etc/default/gumboot $FAT/gumboot.bak/etc_default_gumboot
+mv /etc/gumboot.d $FAT/gumboot.bak/etc_gumboot.d
+
+timeout="$(grep -E '^MENU_TIMEOUT=' $FAT/gumboot.bak/etc_default_gumboot | sed 's/MENU_TIMEOUT=//')"
+if [ "$timeout" = "" ]; then
+	echo -e "\x1b[1;31mWARNING:\x1b[0m Can't detect menu timeout in Gumboot config, falling back to 5s"
+	timeout="5"
+fi
+echo "Migrating timeout ${timeout}s..."
+cat << EOF > $FAT/npll.cfg
+# This is your NPLL user config, autogenerated _once_ by npll-migrate.
+# It will not be touched again, so feel free to modify anything in here,
+# your changes will persist indefinitely.
+#
+# Lines starting with a hashtag (#) are comments, and are not interpreted.
+# You can enable a commented-out setting by removing the hashtag from the
+# start of the line.
+
+#
+# Config options
+#
+
+# cfg_version - The syntax version of the config.
+# This must always be the first meaningful (non-comment / non-blank) line of
+# the config.  The only currently supported value is 1.
+cfg_version=1
+
+# default - The default entry ID to boot.
+default=archpower_stable
+
+# timeout - The number of seconds to delay autoboot by.
+# -1 means to never autoboot.  0 means to boot immediately.
+# >0 means to wait that many seconds (a countdown timer will be displayed).
+# Default if omitted/commented-out is -1.
+timeout=$timeout
+
+# vi_mode - The video mode to use on GameCube/Wii.
+# The following modes are supported, the names are self-explanatory:
+#   - ntsc-480i
+#   - ntsc-480p
+#   - pal50-576i
+#   - pal60-480i
+#   - pal60-480p
+# If omitted/commented-out, NPLL will autodetect the optimal mode, similar
+# to how official Wii software and most homebrew software do.
+#vi_mode=ntsc-480i
+
+#
+# Custom entries
+#
+
+# This is an entry for CEIL1NG_CAT, the BootMii GUI, which replicates the
+# entry shipped in the default Wii-Linux Gumboot config.
+[ceil1ng_cat]
+	name=BootMii GUI
+	platforms=wii
+	type_wii=generic,minisd
+	exec_wii=self:bootmii/gui.elf
+
+# You can place additional entries here.
+EOF
+
+# switching layout, the point of no return
+echo "Switching boot layout..."
+echo npll > /var/lib/wii-linux/boot-layout
+
+echo "Installing NPLL..."
+npll-install $FAT
+
+cat << EOF > /tmp/npll-cleanup.sh
+#!/bin/bash
+# waiting for pacman to be done
+while ps ax | grep pacman | awk '{print \$5}' | grep -E '^pacman$|^/usr/bin/pacman$' > /dev/null; do
+	sleep 1
+done
+
+# remove old Gumboot packages
+to_remove=()
+for pkg in gumboot gumboot-mini npll-gumboot-legacy; do
+	pacman -Qq \$pkg 2>/dev/null >/dev/null && to_remove+=(\$pkg)
+done
+if [ "\${#to_remove[@]}" != 0 ]; then
+	pacman -R --noconfirm "\${to_remove[@]}"
+fi
+
+# nuke leftovers
+[ -d /boot/wii/gumboot ] && rm -rf /boot/wii/gumboot
+[ -d /boot/wii/wiilinux ] && rm -rf /boot/wii/wiilinux
+
+# copy old kernels back into /boot
+mv /boot/wii/gumboot.bak/boot_wiilinux/* /boot/
+rmdir /boot/wii/gumboot.bak/boot_wiilinux
+
+# copy CEIL1NG_CAT back into FAT
+[ -f /usr/lib/bootmii/ppcboot.elf ] && cp /usr/lib/bootmii/ppcboot.elf /boot/wii/bootmii/gui.elf
+
+# regenerate distro config
+npll-mkconfig -o /boot/npll.cfg
+
+# clean up
+rm -f /tmp/npll-cleanup.sh
+EOF
+chmod +x /tmp/npll-cleanup.sh
+/tmp/npll-cleanup.sh &>/tmp/npll-cleanup.log &
+disown
+
+echo -e "\x1b[1;32mMigration is done!\x1b[0m  We will continue some minor package cleanup in the\nbackground (in case this script was launched via pacman).\nYou're free to continue using your system in the mean time."
+exit 0
