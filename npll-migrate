@@ -37,7 +37,7 @@ confirm() {
 		case "$2" in
 			y)
 				echo -n "[Y/n] "
-				read -r conf
+				read -r conf || return 1
 				case "$conf" in
 					y|Y|yes|Yes|YES|"")
 						return 0
@@ -53,6 +53,7 @@ confirm() {
 				;;
 			n)
 				echo -n "[y/N] "
+				read -r conf || return 1
 				case "$conf" in
 					y|Y|yes|Yes|YES)
 						return 0
@@ -195,7 +196,7 @@ cat << EOF
 EOF
 
 echo -ne "\x1b[1m[Press Return to see more...]\x1b[0m "
-read -r dummy
+read -r dummy || exit 1
 unset dummy
 clear
 
@@ -221,27 +222,121 @@ if ! confirm "This migration will make \x1b[1;33mPERMANENT\x1b[0m changes to you
 	exit 0
 fi
 
-umount /boot && mkdir -p /boot/wii && mount -t vfat /dev/mmcblk0p1 /boot/wii || {
-	echo -e "\x1b[1;31mFailed to set up mounts\x1b[0m"
-	if [ -d /boot/wii ]; then
-		rmdir /boot/wii
+# record completed operations so a failure can unwind them in reverse
+FAT=/boot/wii
+backup_sources=()
+backup_destinations=()
+boot_unmounted=0
+fat_mounted=0
+mount_dir_created=0
+backup_dir_created=0
+user_config_created=0
+migration_committed=0
+migration_complete=0
+migration_step="setting up mounts"
+
+migration_exit() {
+	local status=$? i rollback_failed=0
+	trap - EXIT INT TERM HUP
+	if [ "$migration_complete" = 1 ]; then
+		return
 	fi
-	if ! mountpoint -q /boot; then
-		mount -t vfat /dev/mmcblk0p1 /boot
+	[ "$status" != 0 ] || status=1
+	echo "Migration failed while $migration_step." >&2
+	if [ "$migration_committed" = 1 ]; then
+		echo "The boot layout has switched to NPLL, automatic rollback is no longer safe" >&2
+		echo "Gumboot backups remain in $FAT/gumboot.bak, resolve the error before rebooting" >&2
+		exit "$status"
 	fi
-	exit 1
+
+	echo "Restoring the legacy installation..." >&2
+	if [ "$user_config_created" = 1 ]; then
+		rm -f "$FAT/npll.cfg" || rollback_failed=1
+	fi
+	for ((i=${#backup_sources[@]}-1; i>=0; i--)); do
+		if [ ! -e "${backup_destinations[i]}" ]; then
+			continue
+		fi
+		if [ -e "${backup_sources[i]}" ] || ! mv "${backup_destinations[i]}" "${backup_sources[i]}"; then
+			echo "Could not restore ${backup_sources[i]}; backup: ${backup_destinations[i]}" >&2
+			rollback_failed=1
+		fi
+	done
+	if [ "$backup_dir_created" = 1 ] && [ "$rollback_failed" = 0 ]; then
+		rmdir "$FAT/gumboot.bak" || rollback_failed=1
+	fi
+	if [ "$rollback_failed" = 0 ]; then
+		if [ "$fat_mounted" = 1 ]; then
+			umount "$FAT" || rollback_failed=1
+		fi
+		if [ "$rollback_failed" = 0 ] && [ "$mount_dir_created" = 1 ]; then
+			rmdir "$FAT" || rollback_failed=1
+		fi
+		if [ "$rollback_failed" = 0 ] && [ "$boot_unmounted" = 1 ]; then
+			mount -t "$boot_fs_type" -o "$boot_mount_options" "$boot_source" /boot || rollback_failed=1
+		fi
+	fi
+	if [ "$rollback_failed" = 1 ]; then
+		echo "Rollback is incomplete, check the errors above and restore the legacy files and /boot mount before rebooting" >&2
+	else
+		echo "The legacy installation has been restored" >&2
+	fi
+	exit "$status"
 }
 
-FAT=/boot/wii
-ROOT_BOOT=/boot
+backup_move() {
+	migration_step="backing up $1"
+	backup_sources+=("$1")
+	backup_destinations+=("$2")
+	mv "$1" "$2"
+}
+
+set -e
+trap migration_exit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+
+boot_source=$(findmnt -n -o SOURCE --mountpoint /boot)
+boot_fs_type=$(findmnt -n -o FSTYPE --mountpoint /boot)
+boot_mount_options=$(findmnt -n -o OPTIONS --mountpoint /boot)
+if [ -z "$boot_source" ] || [ -z "$boot_fs_type" ] || [ -z "$boot_mount_options" ]; then
+	echo "Could not determine the existing /boot mount." >&2
+	exit 1
+fi
+umount /boot
+boot_unmounted=1
+if [ ! -d "$FAT" ]; then
+	mkdir "$FAT"
+	mount_dir_created=1
+fi
+mount -t "$boot_fs_type" -o "$boot_mount_options" "$boot_source" "$FAT"
+fat_mounted=1
+
+migration_step="checking backup destinations"
+for path in "$FAT/gumboot.bak" "$FAT/npll.cfg"; do
+	if [ -e "$path" ] || [ -L "$path" ]; then
+		echo "Refusing to overwrite $path." >&2
+		exit 1
+	fi
+done
+for path in "$FAT/gumboot" "$FAT/bootmii/armboot.bin" "$FAT/wiilinux" /etc/default/gumboot /etc/gumboot.d; do
+	if [ ! -e "$path" ]; then
+		echo "Required migration source is missing: $path" >&2
+		exit 1
+	fi
+done
 
 echo "Making backups..."
-mkdir -p $FAT/gumboot.bak
-mv $FAT/gumboot $FAT/gumboot.bak/boot_gumboot
-mv $FAT/bootmii/armboot.bin $FAT/gumboot.bak/boot_bootmii_armboot.bin
-mv $FAT/wiilinux $FAT/gumboot.bak/boot_wiilinux
-mv /etc/default/gumboot $FAT/gumboot.bak/etc_default_gumboot
-mv /etc/gumboot.d $FAT/gumboot.bak/etc_gumboot.d
+mkdir "$FAT/gumboot.bak"
+backup_dir_created=1
+backup_move "$FAT/gumboot" "$FAT/gumboot.bak/boot_gumboot"
+backup_move "$FAT/bootmii/armboot.bin" "$FAT/gumboot.bak/boot_bootmii_armboot.bin"
+backup_move "$FAT/wiilinux" "$FAT/gumboot.bak/boot_wiilinux"
+backup_move /etc/default/gumboot "$FAT/gumboot.bak/etc_default_gumboot"
+backup_move /etc/gumboot.d "$FAT/gumboot.bak/etc_gumboot.d"
+
+migration_step="generating the NPLL user config"
 
 timeout="$(grep -E '^MENU_TIMEOUT=' $FAT/gumboot.bak/etc_default_gumboot | sed 's/MENU_TIMEOUT=//')"
 if [ "$timeout" = "" ]; then
@@ -249,7 +344,8 @@ if [ "$timeout" = "" ]; then
 	timeout="5"
 fi
 echo "Migrating timeout ${timeout}s..."
-cat << EOF > $FAT/npll.cfg
+user_config_created=1
+cat << EOF > "$FAT/npll.cfg"
 # This is your NPLL user config, autogenerated _once_ by npll-migrate.
 # It will not be touched again, so feel free to modify anything in here,
 # your changes will persist indefinitely.
@@ -304,13 +400,28 @@ EOF
 
 # switching layout, the point of no return
 echo "Switching boot layout..."
-echo npll > /var/lib/wii-linux/boot-layout
+migration_step="switching boot layout"
+layout_tmp=$(mktemp /var/lib/wii-linux/boot-layout.XXXXXX)
+layout_mode=644
+if [ -e /var/lib/wii-linux/boot-layout ]; then
+	layout_mode=$(stat -c %a /var/lib/wii-linux/boot-layout)
+fi
+if ! echo npll > "$layout_tmp" || ! chmod "$layout_mode" "$layout_tmp" || ! mv "$layout_tmp" /var/lib/wii-linux/boot-layout; then
+	rm -f "$layout_tmp"
+	exit 1
+fi
+migration_committed=1
 
 echo "Installing NPLL..."
-npll-install $FAT
+migration_step="installing NPLL"
+npll-install "$FAT"
+
+migration_step="starting background cleanup"
 
 cat << EOF > /tmp/npll-cleanup.sh
 #!/bin/bash
+set -e
+trap 'echo "NPLL cleanup failed at line \$LINENO, fix the error before rebooting" >&2' ERR
 # waiting for pacman to be done
 while ps ax | grep pacman | awk '{print \$5}' | grep -E '^pacman$|^/usr/bin/pacman$' > /dev/null; do
 	sleep 1
@@ -345,6 +456,8 @@ EOF
 chmod +x /tmp/npll-cleanup.sh
 /tmp/npll-cleanup.sh &>/tmp/npll-cleanup.log &
 disown
+
+migration_complete=1
 
 echo -e "\x1b[1;32mMigration is done!\x1b[0m  We will continue some minor package cleanup in the\nbackground (in case this script was launched via pacman).\nYou're free to continue using your system in the mean time."
 exit 0
