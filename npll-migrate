@@ -231,6 +231,8 @@ fat_mounted=0
 mount_dir_created=0
 backup_dir_created=0
 user_config_created=0
+fstab_updated=0
+fstab_tmp=
 migration_committed=0
 migration_complete=0
 migration_step="setting up mounts"
@@ -238,6 +240,9 @@ migration_step="setting up mounts"
 migration_exit() {
 	local status=$? i rollback_failed=0
 	trap - EXIT INT TERM HUP
+	if [ -n "$fstab_tmp" ]; then
+		rm -f "$fstab_tmp"
+	fi
 	if [ "$migration_complete" = 1 ]; then
 		return
 	fi
@@ -250,6 +255,9 @@ migration_exit() {
 	fi
 
 	echo "Restoring the legacy installation..." >&2
+	if [ "$fstab_updated" = 1 ]; then
+		cat "$FAT/gumboot.bak/etc_fstab" > /etc/fstab || rollback_failed=1
+	fi
 	if [ "$user_config_created" = 1 ]; then
 		rm -f "$FAT/npll.cfg" || rollback_failed=1
 	fi
@@ -300,8 +308,13 @@ trap 'exit 129' HUP
 boot_source=$(findmnt -n -o SOURCE --mountpoint /boot)
 boot_fs_type=$(findmnt -n -o FSTYPE --mountpoint /boot)
 boot_mount_options=$(findmnt -n -o OPTIONS --mountpoint /boot)
+boot_uuid=$(findmnt -n -o UUID --mountpoint /boot)
 if [ -z "$boot_source" ] || [ -z "$boot_fs_type" ] || [ -z "$boot_mount_options" ]; then
 	echo "Could not determine the existing /boot mount." >&2
+	exit 1
+fi
+if [ -z "$boot_uuid" ]; then
+	echo "Could not determine the UUID of the existing /boot filesystem." >&2
 	exit 1
 fi
 umount /boot
@@ -335,6 +348,23 @@ backup_move "$FAT/bootmii/armboot.bin" "$FAT/gumboot.bak/boot_bootmii_armboot.bi
 backup_move "$FAT/wiilinux" "$FAT/gumboot.bak/boot_wiilinux"
 backup_move /etc/default/gumboot "$FAT/gumboot.bak/etc_default_gumboot"
 backup_move /etc/gumboot.d "$FAT/gumboot.bak/etc_gumboot.d"
+
+migration_step="configuring the SD boot mount in /etc/fstab"
+cp -p /etc/fstab "$FAT/gumboot.bak/etc_fstab"
+fstab_tmp=$(mktemp /etc/fstab.XXXXXX)
+awk -v entry="UUID=$boot_uuid /boot/wii $boot_fs_type defaults 0 2" '
+	/^[[:space:]]*#/ { print; next }
+	$2 == "/boot" || $2 == "/boot/wii" {
+		if (!written++) print entry
+		next
+	}
+	{ print }
+	END { if (!written) print entry }
+' /etc/fstab > "$fstab_tmp"
+fstab_updated=1
+cat "$fstab_tmp" > /etc/fstab
+rm -f "$fstab_tmp"
+fstab_tmp=
 
 migration_step="generating the NPLL user config"
 
